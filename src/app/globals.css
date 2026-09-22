@@ -1,22 +1,118 @@
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
 
+/*
+ * Nevai theme. Colours are taken from the approved dashboard design and the
+ * official logo: deep navy chrome, a royal-blue primary and the logo's
+ * violet accent.
+ */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f4f6fb;
+  --foreground: #0f172a;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans:
-    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica,
-    Arial, sans-serif;
+    var(--font-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    Helvetica, Arial, sans-serif;
   --font-mono:
     ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+@theme {
+  --color-navy-700: #1c2a5c;
+  --color-navy-800: #131e46;
+  --color-navy-900: #0c1433;
+  --color-navy-950: #070c22;
+
+  --color-brand-50: #eef3ff;
+  --color-brand-100: #dfe7ff;
+  --color-brand-200: #c3d2ff;
+  --color-brand-300: #9cb3fd;
+  --color-brand-400: #6f8cf8;
+  --color-brand-500: #4a69f1;
+  --color-brand-600: #3157e6;
+  --color-brand-700: #2744c4;
+  --color-brand-800: #24399d;
+  --color-brand-900: #22347c;
+
+  --color-violet-brand: #a45cf5;
+
+  --color-surface: #ffffff;
+  --color-line: #e4e8f1;
+  --color-muted: #5f6b82;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
+}
+
+/* Header gradient echoing the logo (navy -> blue -> violet glow). */
+.nv-header {
+  background:
+    radial-gradient(1200px 120px at 85% -40px, rgba(164, 92, 245, 0.28), transparent 60%),
+    radial-gradient(900px 140px at 20% 140%, rgba(49, 87, 230, 0.35), transparent 60%),
+    linear-gradient(90deg, var(--color-navy-950), var(--color-navy-800) 55%, var(--color-navy-900));
+}
+
+/* Rendered Markdown tweaks on top of @tailwindcss/typography. */
+.nv-prose img {
+  border-radius: 0.5rem;
+  border: 1px solid var(--color-line);
+  background: #fff;
+}
+.nv-prose :where(pre) {
+  border: 1px solid var(--color-line);
+}
+.nv-prose :where(pre code.hljs) {
+  background: transparent;
+  padding: 0;
+}
+.nv-prose :where(table) {
+  display: block;
+  overflow-x: auto;
+}
+.nv-prose :where(input[type="checkbox"]) {
+  margin: 0 0.4em 0.15em 0;
+  vertical-align: middle;
+}
+
+/* Thin scrollbars inside panels. */
+.nv-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd3e3 transparent;
+}
+
+@keyframes nv-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes nv-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.nv-fade-in {
+  animation: nv-fade-in 120ms ease-out;
+}
+.nv-pop-in {
+  animation: nv-pop-in 140ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nv-fade-in,
+  .nv-pop-in {
+    animation: none;
+  }
 }

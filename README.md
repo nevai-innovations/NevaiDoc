@@ -1,31 +1,67 @@
 # NevaiDoc
 
-A small, self-hosted documentation wiki — nested pages, a sidebar tree, and
-Markdown editing, similar in spirit to Confluence. Built with Next.js and
-Postgres, designed to deploy to Vercel for free.
+The Nevai Innovations documentation portal: folders, Markdown documents,
+architecture diagrams and images, version history and a review/approval
+workflow. Built with Next.js and Postgres, designed to deploy to Vercel.
 
-No login/accounts — it's meant for a single person or a team that's fine
-sharing one open space. (If you need per-user accounts later, that's a
-follow-up project.)
+No login/accounts: anyone with the URL can view and edit. Set your name
+under **Settings** so it's recorded on versions and review actions.
+
+## Features
+
+- **Dashboard**: document/folder/approval/attachment counts, recently
+  updated documents, documents awaiting review, recent review activity.
+- **Document Library**: nested folders, search across title, summary, content
+  and tags, status filter, sorting, and moving documents between folders.
+- **Document viewer/editor**: Markdown with live preview, a formatting
+  toolbar, metadata (summary, folder, owner, tags) and sub-pages.
+- **Images & architecture diagrams**: upload from the editor (button, paste
+  or drag-and-drop) or the *Images & diagrams* tab. PNG, JPEG, GIF, WebP and
+  SVG up to 4 MB each. Click any image for a full-screen lightbox with zoom,
+  pan, next/previous and download.
+- **Version history**: every save of the title/content is a version. View
+  any version, compare it with the current one, or restore it (restoring
+  saves a new version and never rewrites history).
+- **Reviews & Approvals**: Draft → Needs Review → Approved / Changes
+  Requested, with reviewer, comments and an audit trail. Editing an approved
+  document moves it back to Draft.
+- **Templates**: start documents from templates, create your own, or use
+  "Save as template" on any document.
+- Every delete asks for confirmation in an in-app dialog.
 
 ## Stack
 
-- **Next.js 16** (App Router) + TypeScript + Tailwind CSS
+- **Next.js 16** (App Router) + React 19 + TypeScript + Tailwind CSS v4
 - **Postgres** for storage, accessed directly with the `pg` driver (no ORM,
   so there's nothing extra to install or generate at build time)
-- **react-markdown** for rendering page content
+- **react-markdown** (+ GFM, syntax highlighting) and **lucide-react** icons
 
 ## Project structure
 
 ```
-src/app/                 Next.js App Router pages
-src/app/api/pages/       REST API for pages (list/create/get/update/delete)
-src/components/          Sidebar (page tree) and PageEditor (view/edit)
-src/lib/                 db connection, page queries, slug helper, types
-db/schema.sql            Postgres schema (one `pages` table)
-scripts/migrate.mjs      Applies db/schema.sql to DATABASE_URL
-scripts/seed.mjs         Seeds a few starter pages (only if the DB is empty)
+src/app/                   Pages: / (dashboard), /library, /docs/[id],
+                           /reviews, /templates, /settings
+src/app/api/               REST API: pages (+ versions, review, attachments),
+                           attachments, folders, templates, settings, dashboard
+src/components/            App shell, sidebar, editor, lightbox, dialogs
+src/components/doc/        Document page: attachments, versions, approvals
+src/components/library/    Library view and folder tree
+src/lib/                   db pool, data access (pages, folders, attachments,
+                           templates, settings, dashboard), types, helpers
+public/brand/              Official Nevai logo (used unmodified)
+db/schema.sql              Postgres schema (additive and safe to re-run)
+scripts/migrate.mjs        Applies db/schema.sql to DATABASE_URL
+scripts/seed.mjs           Seeds templates (if none) and starter docs (if empty)
 ```
+
+## Storage notes
+
+Uploaded images are stored in Postgres (`attachments.data`, `bytea`), so no
+extra storage service is needed. Each file is limited to 4 MB, because Vercel
+rejects request bodies over 4.5 MB. On Neon's free plan (0.5 GB) this is
+fine for a few hundred diagrams. If you expect many large images, move
+`attachments` to Vercel Blob or S3 later; the API already serves every image
+through `/api/attachments/<id>`, so documents won't need editing.
 
 ## Local development
 
@@ -117,11 +153,11 @@ change `db/schema.sql`, re-run `npm run db:migrate` against the production
 
 ## Notes / things you may want to add later
 
-- **Search** — not included in this first version. A simple option later is
-  Postgres full-text search (`tsvector`) over `title`/`content`.
-- **Version history** — not included. Would mean adding a `page_revisions`
-  table and writing a row to it on every save.
-- **Auth** — this deploys wide open to anyone with the URL. If you want to
-  restrict access, the simplest options are Vercel's built-in
+- **Auth**: this deploys wide open to anyone with the URL. The simplest
+  options are Vercel's built-in
   [password protection](https://vercel.com/docs/deployment-protection) (paid
-  plans) or adding a shared-password gate in `middleware.ts`.
+  plans) or a shared-password gate in `proxy.ts` (Next.js 16's replacement
+  for `middleware.ts`). Per-user accounts would also let reviews be tied to
+  real people instead of the "Your name" setting.
+- **Search**: currently a simple `ILIKE` match, which is fine for thousands
+  of documents. For ranking, switch to Postgres full-text search (`tsvector`).

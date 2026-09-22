@@ -46,3 +46,32 @@ export async function queryOne<T extends QueryResultRow = QueryResultRow>(
   const rows = await query<T>(text, params);
   return rows[0] ?? null;
 }
+
+export type Tx = {
+  query<T extends QueryResultRow = QueryResultRow>(text: string, params?: unknown[]): Promise<T[]>;
+  queryOne<T extends QueryResultRow = QueryResultRow>(text: string, params?: unknown[]): Promise<T | null>;
+};
+
+/** Runs `fn` inside BEGIN/COMMIT on a single pooled connection (ROLLBACK on throw). */
+export async function withTransaction<R>(fn: (tx: Tx) => Promise<R>): Promise<R> {
+  const client = await getPool().connect();
+  const tx: Tx = {
+    async query<T extends QueryResultRow = QueryResultRow>(text: string, params: unknown[] = []): Promise<T[]> {
+      return (await client.query<T>(text, params)).rows;
+    },
+    async queryOne<T extends QueryResultRow = QueryResultRow>(text: string, params: unknown[] = []): Promise<T | null> {
+      return (await client.query<T>(text, params)).rows[0] ?? null;
+    },
+  };
+  try {
+    await client.query("BEGIN");
+    const result = await fn(tx);
+    await client.query("COMMIT");
+    return result;
+  } catch (e) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw e;
+  } finally {
+    client.release();
+  }
+}

@@ -1,172 +1,261 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import Sidebar from "@/components/Sidebar";
-import PageEditor from "@/components/PageEditor";
-import type { PageDetail, PageTreeNode } from "@/lib/types";
+import { useState } from "react";
+import Link from "next/link";
+import {
+  ArrowRight,
+  CheckCircle2,
+  ChevronRight,
+  Clock,
+  FileText,
+  Folder as FolderIcon,
+  FolderOpen,
+  ImageIcon,
+  LayoutTemplate,
+  Plus,
+} from "lucide-react";
+import NewDocumentDialog from "@/components/NewDocumentDialog";
+import { useSettings } from "@/components/providers";
+import { btn, card, EmptyState, ErrorBanner, PageLoading, StatusBadge } from "@/components/ui";
+import { ActivityList, DocIcon } from "@/components/common";
+import { formatBytes, greeting, timeAgo, useFetch } from "@/lib/client";
+import type { DashboardData } from "@/lib/types";
 
-export default function Home() {
-  const [tree, setTree] = useState<PageTreeNode[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [selectedPage, setSelectedPage] = useState<PageDetail | null>(null);
-  const [loadingTree, setLoadingTree] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+export default function DashboardPage() {
+  const { settings } = useSettings();
+  const { data, error, reload } = useFetch<DashboardData>("/api/dashboard");
+  const [newDoc, setNewDoc] = useState(0);
 
-  // Derived rather than tracked in state: true exactly while we've picked a
-  // page but haven't yet fetched its content.
-  const loadingPage = selectedId !== null && selectedPage?.id !== selectedId;
-
-  const loadTree = useCallback(async (): Promise<PageTreeNode[]> => {
-    const res = await fetch("/api/pages");
-    if (!res.ok) throw new Error("Failed to load pages");
-    const data = await res.json();
-    setTree(data.tree);
-    return data.tree as PageTreeNode[];
-  }, []);
-
-  const loadPage = useCallback(async (id: string) => {
-    try {
-      const res = await fetch(`/api/pages/${id}`);
-      if (!res.ok) throw new Error("Failed to load page");
-      const data = await res.json();
-      setSelectedPage(data.page);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Something went wrong");
-    }
-  }, []);
-
-  const findFirstId = (nodes: PageTreeNode[]): string | null => {
-    if (nodes.length === 0) return null;
-    return nodes[0].id;
-  };
-
-  useEffect(() => {
-    (async () => {
-      try {
-        setLoadingTree(true);
-        const initialTree = await loadTree();
-        const firstId = findFirstId(initialTree);
-        if (firstId) {
-          setSelectedId(firstId);
-        }
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Something went wrong");
-      } finally {
-        setLoadingTree(false);
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    // Fetching data in response to a prop/state change is the documented,
-    // recommended use of an effect (see react.dev "You Might Not Need an
-    // Effect" — data fetching is one of the exceptions). `loadPage` only
-    // sets state after its `await`, i.e. asynchronously, so this doesn't
-    // actually cause the synchronous cascading-render pattern the rule
-    // below guards against; the linter just can't see through the callback.
-    if (selectedId) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      loadPage(selectedId);
-    } else {
-      setSelectedPage(null);
-    }
-  }, [selectedId, loadPage]);
-
-  const handleCreateChild = async (parentId: string | null) => {
-    setError(null);
-    const res = await fetch("/api/pages", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: "Untitled page", parentId }),
-    });
-    if (!res.ok) {
-      setError("Failed to create page");
-      return;
-    }
-    const data = await res.json();
-    await loadTree();
-    setSelectedId(data.page.id);
-  };
-
-  const handleDelete = async (id: string) => {
-    setError(null);
-    const res = await fetch(`/api/pages/${id}`, { method: "DELETE" });
-    if (!res.ok) {
-      setError("Failed to delete page");
-      return;
-    }
-    const newTree = await loadTree();
-    if (selectedId === id) {
-      setSelectedId(findFirstId(newTree));
-    }
-  };
-
-  const handleSave = async (updates: { title?: string; content?: string }) => {
-    if (!selectedId) return;
-    setError(null);
-    const res = await fetch(`/api/pages/${selectedId}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(updates),
-    });
-    if (!res.ok) {
-      setError("Failed to save page");
-      return;
-    }
-    const data = await res.json();
-    setSelectedPage(data.page);
-    await loadTree();
-  };
+  const name = settings.displayName.trim().split(/\s+/)[0];
 
   return (
-    <div className="flex flex-1 min-h-0">
-      <aside className="w-64 shrink-0 border-r border-zinc-200 bg-zinc-50/50">
-        {loadingTree ? (
-          <p className="px-4 py-4 text-sm text-zinc-400">Loading…</p>
-        ) : (
-          <Sidebar
-            tree={tree}
-            selectedId={selectedId}
-            onSelect={setSelectedId}
-            onCreateChild={handleCreateChild}
-            onDelete={handleDelete}
-          />
-        )}
-      </aside>
+    <div className="mx-auto w-full max-w-[1400px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl" suppressHydrationWarning>
+            {greeting()}
+            {name ? `, ${name}` : ""}
+          </h1>
+          <p className="mt-1.5 text-base text-muted">Here&apos;s what&apos;s happening in {settings.workspaceName} today.</p>
+        </div>
+        <button className={`${btn.primary} px-5 py-2.5 text-base`} onClick={() => setNewDoc((n) => n + 1)}>
+          <Plus className="h-5 w-5" /> New document
+        </button>
+      </div>
 
-      <main className="flex-1 min-w-0 flex flex-col">
-        {error && (
-          <div className="px-6 py-2 text-sm text-red-700 bg-red-50 border-b border-red-200">
-            {error}
+      {error && !data && (
+        <div className="mt-6">
+          <ErrorBanner message={error} onRetry={reload} />
+        </div>
+      )}
+
+      {!data && !error ? (
+        <PageLoading />
+      ) : data ? (
+        <>
+          <div className="mt-7 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <StatCard
+              href="/library"
+              icon={<FileText className="h-6 w-6" />}
+              iconClass="bg-brand-50 text-brand-600"
+              label="Total Documents"
+              value={data.stats.documents}
+              sub={`${data.stats.documentsThisWeek} added this week`}
+            />
+            <StatCard
+              href="/library"
+              icon={<FolderIcon className="h-6 w-6" />}
+              iconClass="bg-violet-50 text-violet-600"
+              label="Folders"
+              value={data.stats.folders}
+              sub="Organise docs by team or topic"
+            />
+            <StatCard
+              href="/reviews"
+              icon={<Clock className="h-6 w-6" />}
+              iconClass="bg-emerald-50 text-emerald-600"
+              label="Pending Approvals"
+              value={data.stats.pendingApprovals}
+              sub={
+                data.stats.changesRequested
+                  ? `${data.stats.changesRequested} with changes requested`
+                  : "Nothing waiting on changes"
+              }
+            />
+            <StatCard
+              href="/library"
+              icon={<ImageIcon className="h-6 w-6" />}
+              iconClass="bg-amber-50 text-amber-600"
+              label="Images & Diagrams"
+              value={data.stats.attachments}
+              sub={`${data.stats.diagrams} architecture diagram${data.stats.diagrams === 1 ? "" : "s"}`}
+            />
           </div>
-        )}
-        {loadingPage ? (
-          <div className="flex-1 flex items-center justify-center text-zinc-400 text-sm">
-            Loading…
+
+          <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-2">
+            <section className={`${card} p-5 sm:p-6`}>
+              <SectionHeader
+                icon={<FileText className="h-6 w-6" />}
+                title="Document Library"
+                subtitle="Recently updated documents"
+                href="/library"
+              />
+              {data.recent.length === 0 ? (
+                <EmptyState icon={<FileText className="h-6 w-6" />} title="No documents yet">
+                  Create your first document to get started.
+                </EmptyState>
+              ) : (
+                <div className="-mx-2 mt-4 overflow-x-auto">
+                  <table className="w-full min-w-[520px] text-sm">
+                    <thead>
+                      <tr className="bg-slate-50 text-left text-xs font-medium text-muted">
+                        <th className="rounded-l-lg px-3 py-2.5 font-medium">Name</th>
+                        <th className="px-3 py-2.5 font-medium">Updated</th>
+                        <th className="px-3 py-2.5 font-medium">Size</th>
+                        <th className="rounded-r-lg px-3 py-2.5 font-medium">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-line">
+                      {data.recent.map((p) => (
+                        <tr key={p.id} className="hover:bg-slate-50/70">
+                          <td className="px-3 py-3">
+                            <Link href={`/docs/${p.id}`} className="flex items-center gap-3 font-medium text-slate-800 hover:text-brand-700">
+                              <DocIcon />
+                              <span className="truncate">{p.title}</span>
+                            </Link>
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-3 text-muted">{timeAgo(p.updatedAt)}</td>
+                          <td className="whitespace-nowrap px-3 py-3 text-muted">{formatBytes(p.size)}</td>
+                          <td className="px-3 py-3">
+                            <StatusBadge status={p.status} />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+
+            <section className={`${card} p-5 sm:p-6`}>
+              <SectionHeader
+                icon={<CheckCircle2 className="h-6 w-6" />}
+                title="Reviews & Approvals"
+                subtitle="Documents awaiting review"
+                href="/reviews"
+              />
+              {data.awaitingReview.length === 0 ? (
+                <EmptyState icon={<CheckCircle2 className="h-6 w-6" />} title="All caught up">
+                  No documents are waiting for review.
+                </EmptyState>
+              ) : (
+                <ul className="mt-4 divide-y divide-line">
+                  {data.awaitingReview.map((p) => (
+                    <li key={p.id}>
+                      <Link href={`/docs/${p.id}`} className="-mx-2 flex items-center gap-3 rounded-lg px-2 py-3 hover:bg-slate-50">
+                        <DocIcon />
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate font-medium text-slate-800">{p.title}</p>
+                          <p className="truncate text-sm text-muted">
+                            {p.owner ? `Requested by ${p.owner}` : "Submitted for review"}
+                            {p.reviewer ? ` · Reviewer: ${p.reviewer}` : ""}
+                          </p>
+                        </div>
+                        <span className="hidden whitespace-nowrap text-sm text-muted sm:block">{timeAgo(p.updatedAt)}</span>
+                        <StatusBadge status={p.status} />
+                        <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {data.activity.length > 0 && (
+                <div className="mt-5 border-t border-line pt-4">
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">Recent activity</p>
+                  <ActivityList events={data.activity.slice(0, 4)} />
+                </div>
+              )}
+            </section>
           </div>
-        ) : selectedPage ? (
-          <PageEditor
-            key={selectedPage.id}
-            page={selectedPage}
-            onSave={handleSave}
-            onDelete={() => handleDelete(selectedPage.id)}
-          />
-        ) : (
-          <div className="flex-1 flex flex-col items-center justify-center text-center gap-3 px-6">
-            <h2 className="text-lg font-medium text-zinc-700">Welcome to NevaiDoc</h2>
-            <p className="text-sm text-zinc-500 max-w-sm">
-              Create your first page from the sidebar to start writing documentation.
-            </p>
-            <button
-              onClick={() => handleCreateChild(null)}
-              className="mt-2 text-sm px-4 py-2 rounded-md bg-zinc-900 text-white hover:bg-zinc-700"
-            >
-              + New page
-            </button>
-          </div>
-        )}
-      </main>
+
+          <section className="mt-6 flex flex-col items-start gap-4 rounded-xl border border-brand-100 bg-gradient-to-r from-brand-50 via-brand-50/60 to-violet-50 p-5 sm:flex-row sm:items-center sm:p-6">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-white text-brand-600 shadow-sm">
+              <FolderOpen className="h-6 w-6" />
+            </div>
+            <div className="flex-1">
+              <h2 className="font-semibold text-slate-900">Keep knowledge moving</h2>
+              <p className="text-sm text-muted">
+                Organise, version and get approvals — all in one place with {settings.workspaceName}.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Link href="/templates" className={btn.secondary}>
+                <LayoutTemplate className="h-4 w-4" /> Browse templates
+              </Link>
+              <button className={btn.primary} onClick={() => setNewDoc((n) => n + 1)}>
+                New document
+              </button>
+            </div>
+          </section>
+        </>
+      ) : null}
+
+      <NewDocumentDialog key={newDoc} open={newDoc > 0} onClose={() => setNewDoc(0)} />
+    </div>
+  );
+}
+
+function StatCard({
+  href,
+  icon,
+  iconClass,
+  label,
+  value,
+  sub,
+}: {
+  href: string;
+  icon: React.ReactNode;
+  iconClass: string;
+  label: string;
+  value: number;
+  sub: string;
+}) {
+  return (
+    <Link href={href} className={`${card} group flex items-center gap-4 p-5 transition-shadow hover:shadow-md`}>
+      <span className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-full ${iconClass}`}>{icon}</span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-medium text-slate-700">{label}</span>
+        <span className="block text-3xl font-bold tracking-tight text-slate-900">{value.toLocaleString()}</span>
+        <span className="block truncate text-sm text-muted">{sub}</span>
+      </span>
+      <ChevronRight className="h-5 w-5 shrink-0 text-slate-400 transition-transform group-hover:translate-x-0.5" />
+    </Link>
+  );
+}
+
+function SectionHeader({
+  icon,
+  title,
+  subtitle,
+  href,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  subtitle: string;
+  href: string;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-4">
+      <div>
+        <h2 className="flex items-center gap-3 text-xl font-semibold text-slate-900">
+          <span className="text-slate-800">{icon}</span>
+          {title}
+        </h2>
+        <p className="mt-1 text-sm text-muted">{subtitle}</p>
+      </div>
+      <Link href={href} className="inline-flex shrink-0 items-center gap-1.5 text-sm font-medium text-brand-600 hover:text-brand-800">
+        View all <ArrowRight className="h-4 w-4" />
+      </Link>
     </div>
   );
 }
