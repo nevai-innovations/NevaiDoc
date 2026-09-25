@@ -17,6 +17,10 @@ const ERRORS: Record<string, [number, string]> = {
     415,
     "That file type isn't supported, or the file doesn't match its extension. Supported: PDF, Word, Excel, CSV, PowerPoint, images, text, MP4 and MP3.",
   ],
+  FILE_TOO_LARGE_S3: [413, "Files must be 100 MB or smaller"],
+  INVALID_UPLOAD: [400, "Invalid upload reference"],
+  UPLOAD_NOT_FOUND: [400, "The upload didn't reach storage. Please try again."],
+  S3_NOT_CONFIGURED: [400, "S3 storage isn't configured"],
   NOT_AN_IMAGE: [415, "Images and diagrams must be PNG, JPEG, GIF, WebP or SVG. Upload other files as a File."],
 };
 

@@ -23,10 +23,11 @@ import Menu from "@/components/Menu";
 import NewDocumentDialog from "@/components/NewDocumentDialog";
 import FolderTree, { type FolderSelection } from "@/components/library/FolderTree";
 import { DocIcon, useDeleteDocument } from "@/components/common";
-import { useConfirm, useToast } from "@/components/providers";
+import { useConfirm, useSettings, useToast } from "@/components/providers";
 import { btn, card, EmptyState, ErrorBanner, Field, input, Modal, PageLoading, Spinner, STATUS_META, StatusBadge, Tag } from "@/components/ui";
 import { api, formatBytes, timeAgo, useFetch } from "@/lib/client";
-import { ANY_ACCEPT, fileTypeOf, SUPPORTED_SUMMARY } from "@/lib/file-types";
+import { ANY_ACCEPT, SUPPORTED_SUMMARY } from "@/lib/file-types";
+import { checkFile, uploadAsDocument } from "@/lib/upload";
 import { PAGE_STATUSES, type Folder, type PageSummary } from "@/lib/types";
 
 export default function LibraryView() {
@@ -90,6 +91,8 @@ export default function LibraryView() {
   const [folderDialogKey, setFolderDialogKey] = useState(0);
   const [moving, setMoving] = useState<PageSummary | null>(null);
   const [uploading, setUploading] = useState(0);
+  const [progress, setProgress] = useState<number | null>(null);
+  const { uploads } = useSettings();
   const [dragOver, setDragOver] = useState(false);
   const uploadInput = useRef<HTMLInputElement>(null);
 
@@ -100,17 +103,14 @@ export default function LibraryView() {
     const created: PageSummary["id"][] = [];
     for (const file of files) {
       try {
-        if (file.size > 4 * 1024 * 1024) throw new Error(`“${file.name}” is larger than 4 MB`);
-        if (!fileTypeOf(file.name)) throw new Error(`“${file.name}” isn't a supported type (${SUPPORTED_SUMMARY})`);
-        const form = new FormData();
-        form.append("file", file);
-        if (currentFolder) form.append("folderId", currentFolder.id);
-        const { page } = await api<{ page: { id: string } }>("/api/pages/upload", { form });
+        checkFile(file, uploads.maxUploadBytes);
+        const page = await uploadAsDocument(file, currentFolder?.id ?? null, setProgress);
         created.push(page.id);
       } catch (e) {
         toast("error", e instanceof Error ? e.message : `Couldn't upload “${file.name}”`);
       } finally {
         setUploading((n) => n - 1);
+        setProgress(null);
       }
     }
     if (!created.length) return;
@@ -180,9 +180,9 @@ export default function LibraryView() {
             className={btn.secondary}
             onClick={() => uploadInput.current?.click()}
             disabled={uploading > 0}
-            title={`Upload ${SUPPORTED_SUMMARY} files as documents`}
+            title={`Upload ${SUPPORTED_SUMMARY} files as documents (up to ${formatBytes(uploads.maxUploadBytes)} each)`}
           >
-            {uploading ? <Spinner /> : <Upload className="h-4 w-4" />} {uploading ? `Uploading ${uploading}…` : "Upload files"}
+            {uploading ? <Spinner /> : <Upload className="h-4 w-4" />} {uploading ? `Uploading${progress !== null ? ` ${Math.round(progress * 100)}%` : "…"}` : "Upload files"}
           </button>
           <input
             ref={uploadInput}

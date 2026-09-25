@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { countDescendants, getPageFull, updatePage, deletePage, type PageUpdates } from "@/lib/pages";
 import { getSettings } from "@/lib/settings";
+import { s3KeysForPageTree } from "@/lib/attachments";
+import { deleteObjectsQuietly } from "@/lib/s3";
 import { errorResponse, nullableId, readJson } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
@@ -48,8 +50,12 @@ export async function PUT(request: NextRequest, ctx: Ctx) {
 export async function DELETE(_request: NextRequest, ctx: Ctx) {
   const { id } = await ctx.params;
   try {
+    // Collect the S3 files of the page and its sub-pages first: the database
+    // rows disappear with the page (ON DELETE CASCADE).
+    const s3Keys = await s3KeysForPageTree(id);
     const ok = await deletePage(id);
     if (!ok) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    await deleteObjectsQuietly(s3Keys);
     return NextResponse.json({ ok: true });
   } catch (e) {
     return errorResponse(e, "Failed to delete page");

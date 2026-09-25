@@ -3,36 +3,31 @@
 import { useRef, useState, type DragEvent } from "react";
 import { Check, Copy, Eye, FileUp, ImageIcon, Network, Pencil, Trash2, Upload, X } from "lucide-react";
 import { FileIcon, fileLabel } from "@/components/files/FileIcon";
-import { useConfirm, useFilePreview, useLightbox, useToast } from "@/components/providers";
+import { useConfirm, useFilePreview, useLightbox, useSettings, useToast } from "@/components/providers";
 import { btn, input, Spinner } from "@/components/ui";
 import { api, formatBytes, timeAgo } from "@/lib/client";
-import { ANY_ACCEPT, fileTypeOf, SUPPORTED_SUMMARY } from "@/lib/file-types";
+import { ANY_ACCEPT, SUPPORTED_SUMMARY } from "@/lib/file-types";
+import { checkFile, uploadToPage, type Progress } from "@/lib/upload";
 import type { Attachment, AttachmentKind } from "@/lib/types";
 
-export const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
 export const ACCEPT = ANY_ACCEPT;
 
 const isPicture = (a: Pick<Attachment, "mimeType">) => a.mimeType.startsWith("image/");
 
 /**
- * Validates in the browser first (fast feedback), then uploads. Anything
- * that isn't a picture is always stored as a "file", whatever was requested.
+ * Checks the file in the browser first (fast feedback), then uploads it —
+ * straight to S3 when configured. Anything that isn't a picture is always
+ * stored as a "file", whatever was requested.
  */
 export async function uploadAttachment(
   pageId: string,
   file: File,
   kind: AttachmentKind,
-  caption = ""
+  maxBytes: number,
+  onProgress?: Progress
 ): Promise<Attachment> {
-  if (file.size > MAX_UPLOAD_BYTES) throw new Error(`“${file.name}” is larger than 4 MB`);
-  const type = fileTypeOf(file.name);
-  if (!type) throw new Error(`“${file.name}” isn't a supported type (${SUPPORTED_SUMMARY})`);
-  const form = new FormData();
-  form.append("file", file);
-  form.append("kind", type.category === "image" ? kind : "file");
-  form.append("caption", caption);
-  const { attachment } = await api<{ attachment: Attachment }>(`/api/pages/${pageId}/attachments`, { form });
-  return attachment;
+  checkFile(file, maxBytes);
+  return uploadToPage(pageId, file, kind, { onProgress });
 }
 
 /** Markdown that embeds the attachment: an image, or a file card with preview. */
@@ -57,6 +52,8 @@ export default function AttachmentsPanel({
   const confirm = useConfirm();
   const openLightbox = useLightbox();
   const previewFile = useFilePreview();
+  const { uploads } = useSettings();
+  const [progress, setProgress] = useState<number | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const [kind, setKind] = useState<AttachmentKind>("file");
   const [uploading, setUploading] = useState(0);
@@ -70,12 +67,13 @@ export default function AttachmentsPanel({
     let ok = 0;
     for (const file of list) {
       try {
-        await uploadAttachment(pageId, file, kind);
+        await uploadAttachment(pageId, file, kind, uploads.maxUploadBytes, setProgress);
         ok++;
       } catch (e) {
         toast("error", e instanceof Error ? e.message : "Upload failed");
       } finally {
         setUploading((n) => n - 1);
+        setProgress(null);
       }
     }
     if (ok) {
@@ -128,9 +126,18 @@ export default function AttachmentsPanel({
           {uploading ? <Spinner className="h-5 w-5" /> : <Upload className="h-5 w-5" />}
         </div>
         <p className="mt-3 text-sm font-medium text-slate-800">
-          {uploading ? `Uploading ${uploading} file${uploading === 1 ? "" : "s"}…` : "Drop files here, or choose files"}
+          {uploading
+            ? `Uploading ${uploading} file${uploading === 1 ? "" : "s"}…${progress !== null ? ` ${Math.round(progress * 100)}%` : ""}`
+            : "Drop files here, or choose files"}
         </p>
-        <p className="mt-1 text-xs text-muted">{SUPPORTED_SUMMARY} · up to 4 MB each</p>
+        {uploading > 0 && progress !== null && (
+          <div className="mx-auto mt-2 h-1.5 max-w-xs overflow-hidden rounded-full bg-slate-200">
+            <div className="h-full rounded-full bg-brand-600 transition-[width]" style={{ width: `${Math.round(progress * 100)}%` }} />
+          </div>
+        )}
+        <p className="mt-1 text-xs text-muted">
+          {SUPPORTED_SUMMARY} · up to {formatBytes(uploads.maxUploadBytes)} each
+        </p>
         <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
           <div className="inline-flex flex-wrap rounded-lg border border-line bg-white p-0.5 text-sm" role="radiogroup" aria-label="Upload as">
             {kinds.map(([k, label, Icon]) => (

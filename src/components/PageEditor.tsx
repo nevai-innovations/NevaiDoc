@@ -23,7 +23,7 @@ import FolderSelect from "@/components/FolderSelect";
 import MarkdownView from "@/components/MarkdownView";
 import { attachmentMarkdown, uploadAttachment } from "@/components/doc/AttachmentsPanel";
 import { ANY_ACCEPT, IMAGE_ACCEPT } from "@/lib/file-types";
-import { useConfirm, useToast } from "@/components/providers";
+import { useConfirm, useSettings, useToast } from "@/components/providers";
 import { btn, card, Field, input, Spinner } from "@/components/ui";
 import { api, wordCount } from "@/lib/client";
 import type { AttachmentKind, Folder, PageFull } from "@/lib/types";
@@ -96,6 +96,7 @@ export default function PageEditor({ page, folders, onSaved, onCancel, onUploade
   const fileInput = useRef<HTMLInputElement>(null);
   const toast = useToast();
   const confirm = useConfirm();
+  const { uploads } = useSettings();
 
   const tags = tagsText
     .split(",")
@@ -137,7 +138,7 @@ export default function PageEditor({ page, folders, onSaved, onCancel, onUploade
     const snippets: string[] = [];
     for (const file of files) {
       try {
-        const a = await uploadAttachment(page.id, file, kind);
+        const a = await uploadAttachment(page.id, file, kind, uploads.maxUploadBytes);
         snippets.push(attachmentMarkdown(a));
       } catch (e) {
         toast("error", e instanceof Error ? e.message : "Upload failed");

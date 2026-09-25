@@ -109,3 +109,10 @@ CREATE TABLE IF NOT EXISTS settings (
   key         TEXT PRIMARY KEY,
   value       TEXT NOT NULL
 );
+
+-- Optional S3 storage for attachments (see src/lib/s3.ts).
+-- storage: db (bytes in attachments.data) | s3 (bytes in S3 at s3_key)
+ALTER TABLE attachments ADD COLUMN IF NOT EXISTS storage TEXT NOT NULL DEFAULT 'db';
+ALTER TABLE attachments ADD COLUMN IF NOT EXISTS s3_key  TEXT;
+ALTER TABLE attachments ALTER COLUMN data DROP NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS attachments_s3_key_idx ON attachments(s3_key) WHERE s3_key IS NOT NULL;

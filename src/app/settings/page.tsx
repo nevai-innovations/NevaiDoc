@@ -5,20 +5,45 @@ import { Database, Save } from "lucide-react";
 import { useSettings, useToast } from "@/components/providers";
 import { btn, card, Field, input, PageLoading, Spinner } from "@/components/ui";
 import { api, formatBytes, useFetch } from "@/lib/client";
-import type { Settings } from "@/lib/types";
+import type { Settings, UploadInfo } from "@/lib/types";
 
-type Usage = { databaseBytes: number; documentBytes: number; attachmentBytes: number; attachmentCount: number };
+type Usage = {
+  databaseBytes: number;
+  documentBytes: number;
+  attachmentBytes: number;
+  attachmentCount: number;
+  s3Bytes: number;
+  s3Count: number;
+};
 
 /** Neon's free plan allows 0.5 GB per project. */
 const FREE_PLAN_BYTES = 512 * 1024 * 1024;
 
 export default function SettingsPage() {
-  const { data, reload } = useFetch<{ settings: Settings; usage: Usage }>("/api/settings?usage=1");
+  const { data, reload } = useFetch<{ settings: Settings; usage: Usage; uploads: UploadInfo }>("/api/settings?usage=1");
   if (!data) return <PageLoading />;
-  return <SettingsForm key={JSON.stringify(data.settings)} initial={data.settings} usage={data.usage} onSaved={reload} />;
+  return (
+    <SettingsForm
+      key={JSON.stringify(data.settings)}
+      initial={data.settings}
+      usage={data.usage}
+      uploads={data.uploads}
+      onSaved={reload}
+    />
+  );
 }
 
-function SettingsForm({ initial, usage, onSaved }: { initial: Settings; usage: Usage; onSaved: () => void }) {
+function SettingsForm({
+  initial,
+  usage,
+  uploads,
+  onSaved,
+}: {
+  initial: Settings;
+  usage: Usage;
+  uploads: UploadInfo;
+  onSaved: () => void;
+}) {
   const toast = useToast();
   const { reload: reloadGlobal } = useSettings();
   const [workspaceName, setWorkspaceName] = useState(initial.workspaceName);
@@ -83,14 +108,34 @@ function SettingsForm({ initial, usage, onSaved }: { initial: Settings; usage: U
             />
           </div>
         </div>
-        <dl className="mt-5 grid grid-cols-1 gap-3 text-sm sm:grid-cols-3">
+        <dl className="mt-5 grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
           <Stat label="Document text" value={formatBytes(usage.documentBytes)} />
-          <Stat label="Images & diagrams" value={`${formatBytes(usage.attachmentBytes)} (${usage.attachmentCount})`} />
-          <Stat label="Upload limit" value="4 MB per file" />
+          <Stat label="Files in the database" value={`${formatBytes(usage.attachmentBytes)} (${usage.attachmentCount})`} />
+          <Stat
+            label="Files in AWS S3"
+            value={
+              uploads.storage === "s3"
+                ? `${formatBytes(usage.s3Bytes)} (${usage.s3Count})`
+                : usage.s3Count
+                  ? `${formatBytes(usage.s3Bytes)} (${usage.s3Count}) · S3 not configured`
+                  : "Not connected"
+            }
+          />
+          <Stat label="Upload limit" value={`${formatBytes(uploads.maxUploadBytes)} per file`} />
         </dl>
         <p className="mt-4 text-xs text-muted">
-          Uploads are stored in the Postgres database. The total includes Postgres&apos;s own overhead and old row versions
-          it hasn&apos;t cleaned up yet.
+          {uploads.storage === "s3" ? (
+            <>
+              New uploads go to the S3 bucket <strong className="font-medium text-slate-700">{uploads.bucket}</strong> (
+              {uploads.region}) and don&apos;t count towards the database limit. Files uploaded before S3 was connected stay in
+              the database.
+            </>
+          ) : (
+            <>
+              Uploads are stored in the Postgres database. Connect AWS S3 (see the README) for larger files and more space.
+            </>
+          )}{" "}
+          The database total includes Postgres&apos;s own overhead and old row versions it hasn&apos;t cleaned up yet.
         </p>
       </section>
 

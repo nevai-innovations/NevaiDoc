@@ -14,7 +14,7 @@ import { AlertTriangle, CheckCircle2, Info, X } from "lucide-react";
 import { Lightbox, type LightboxImage } from "@/components/Lightbox";
 import { btn, Modal } from "@/components/ui";
 import { useFetch } from "@/lib/client";
-import type { Settings } from "@/lib/types";
+import type { Settings, UploadInfo } from "@/lib/types";
 import type { PreviewFile } from "@/components/files/FilePreview";
 
 // Loaded on first use: the viewers pull in the spreadsheet/Word/PowerPoint parsers.
@@ -25,9 +25,11 @@ const FilePreviewModal = dynamic(() => import("@/components/files/FilePreview").
 // ---------- Settings (workspace name, display name) ----------
 
 const DEFAULTS: Settings = { workspaceName: "Nevai Workspace", displayName: "" };
+const DEFAULT_UPLOADS: UploadInfo = { storage: "db", maxUploadBytes: 4 * 1024 * 1024 };
 
-const SettingsContext = createContext<{ settings: Settings; loaded: boolean; reload: () => void }>({
+const SettingsContext = createContext<{ settings: Settings; uploads: UploadInfo; loaded: boolean; reload: () => void }>({
   settings: DEFAULTS,
+  uploads: DEFAULT_UPLOADS,
   loaded: false,
   reload: () => {},
 });
@@ -37,9 +39,9 @@ export function useSettings() {
 }
 
 function SettingsProvider({ children }: { children: ReactNode }) {
-  const { data, reload } = useFetch<{ settings: Settings }>("/api/settings");
+  const { data, reload } = useFetch<{ settings: Settings; uploads: UploadInfo }>("/api/settings");
   const value = useMemo(
-    () => ({ settings: data?.settings ?? DEFAULTS, loaded: !!data, reload }),
+    () => ({ settings: data?.settings ?? DEFAULTS, uploads: data?.uploads ?? DEFAULT_UPLOADS, loaded: !!data, reload }),
     [data, reload]
   );
   return <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>;

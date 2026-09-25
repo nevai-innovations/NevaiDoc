@@ -104,6 +104,13 @@ export type Template = {
   updatedAt: string;
 };
 
+export type UploadInfo = {
+  storage: "s3" | "db";
+  maxUploadBytes: number;
+  bucket?: string;
+  region?: string;
+};
+
 export type Settings = {
   workspaceName: string;
   displayName: string;

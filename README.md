@@ -31,7 +31,8 @@ under **Settings** so it's recorded on versions and review actions.
   or drag-and-drop) or the *Files & images* tab. PNG, JPEG, GIF, WebP and
   SVG. Click any image for a full-screen lightbox with zoom, pan,
   next/previous and download.
-- All uploads are limited to 4 MB per file (see Storage notes).
+- Uploads are limited to 4 MB per file, or 100 MB once AWS S3 is connected
+  (see Storage notes).
 - **Version history**: every save of the title/content is a version. View
   any version, compare it with the current one, or restore it (restoring
   saves a new version and never rewrites history).
@@ -69,12 +70,72 @@ scripts/seed.mjs           Seeds templates (if none) and starter docs (if empty)
 
 ## Storage notes
 
-Uploaded files and images are stored in Postgres (`attachments.data`, `bytea`), so no
-extra storage service is needed. Each file is limited to 4 MB, because Vercel
-rejects request bodies over 4.5 MB. On Neon's free plan (0.5 GB) this is
-fine for a few hundred files. If you expect many large files, move
-`attachments` to Vercel Blob or S3 later; the API already serves every image
-through `/api/attachments/<id>`, so documents won't need editing.
+By default, uploads are stored in Postgres (`attachments.data`), limited to
+4 MB per file because Vercel rejects request bodies over 4.5 MB.
+
+**With AWS S3 connected** (below), new uploads go straight from the browser
+to S3 using short-lived signed links, so files can be up to **100 MB** and
+don't count towards the database size. The bucket stays private: the app
+checks each upload's real type, moves it from `tmp/` to `files/`, and serves
+it through `/api/attachments/<id>`, which redirects to a signed link that
+expires after 10 minutes. Files uploaded before S3 was connected stay in
+Postgres and keep working.
+
+## Connecting AWS S3
+
+1. **Create a bucket** (S3 → Create bucket), e.g. `nevaidoc-files` in
+   `us-east-1`. Leave **Block all public access** on.
+
+2. **CORS** (bucket → Permissions → Cross-origin resource sharing), so the
+   browser can upload directly:
+
+   ```json
+   [
+     {
+       "AllowedOrigins": ["https://docs.nevaitech.org", "https://nevai-doc.vercel.app", "http://localhost:3000"],
+       "AllowedMethods": ["GET", "PUT", "HEAD"],
+       "AllowedHeaders": ["*"],
+       "ExposeHeaders": ["ETag"],
+       "MaxAgeSeconds": 3000
+     }
+   ]
+   ```
+
+3. **Lifecycle rule** (bucket → Management → Create lifecycle rule): prefix
+   `tmp/`, *Expire current versions of objects* after **1 day**. This cleans
+   up uploads that were started but never finished.
+
+4. **IAM user** (IAM → Users → Create user, no console access) with this
+   inline policy, then create an **access key** for it ("Application running
+   outside AWS"):
+
+   ```json
+   {
+     "Version": "2012-10-17",
+     "Statement": [
+       {
+         "Effect": "Allow",
+         "Action": ["s3:PutObject", "s3:GetObject", "s3:DeleteObject"],
+         "Resource": "arn:aws:s3:::nevaidoc-files/*"
+       }
+     ]
+   }
+   ```
+
+5. **Vercel → Settings → Environment Variables** (Production and Preview),
+   then redeploy:
+
+   | Name | Value |
+   | ---- | ----- |
+   | `S3_BUCKET` | `nevaidoc-files` |
+   | `S3_REGION` | `us-east-1` |
+   | `S3_ACCESS_KEY_ID` | the access key ID |
+   | `S3_SECRET_ACCESS_KEY` | the secret access key (mark as Sensitive) |
+
+   (Vercel reserves the `AWS_*` names, hence the `S3_` prefix.) Optional:
+   `S3_ENDPOINT` for S3-compatible services such as Cloudflare R2 or MinIO.
+
+**Settings → Storage** in the app shows whether S3 is connected.
 
 ## Local development
 

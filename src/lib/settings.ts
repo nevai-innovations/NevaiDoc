@@ -36,8 +36,12 @@ export async function updateSettings(updates: Partial<Settings>): Promise<Settin
 export type StorageUsage = {
   databaseBytes: number;
   documentBytes: number;
+  /** Files stored in Postgres. */
   attachmentBytes: number;
   attachmentCount: number;
+  /** Files stored in S3. */
+  s3Bytes: number;
+  s3Count: number;
 };
 
 export async function getStorageUsage(): Promise<StorageUsage> {
@@ -46,16 +50,22 @@ export async function getStorageUsage(): Promise<StorageUsage> {
     document_bytes: string | null;
     attachment_bytes: string | null;
     attachment_count: number;
+    s3_bytes: string | null;
+    s3_count: number;
   }>(
     `SELECT pg_database_size(current_database()) AS database_bytes,
             (SELECT SUM(octet_length(content)) FROM pages) AS document_bytes,
-            (SELECT SUM(size) FROM attachments) AS attachment_bytes,
-            (SELECT COUNT(*)::int FROM attachments) AS attachment_count`
+            (SELECT SUM(size) FROM attachments WHERE storage = 'db') AS attachment_bytes,
+            (SELECT COUNT(*)::int FROM attachments WHERE storage = 'db') AS attachment_count,
+            (SELECT SUM(size) FROM attachments WHERE storage = 's3') AS s3_bytes,
+            (SELECT COUNT(*)::int FROM attachments WHERE storage = 's3') AS s3_count`
   );
   return {
     databaseBytes: Number(row.database_bytes),
     documentBytes: Number(row.document_bytes ?? 0),
     attachmentBytes: Number(row.attachment_bytes ?? 0),
     attachmentCount: row.attachment_count,
+    s3Bytes: Number(row.s3_bytes ?? 0),
+    s3Count: row.s3_count,
   };
 }

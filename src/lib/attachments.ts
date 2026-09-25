@@ -1,6 +1,15 @@
 import { randomUUID } from "crypto";
 import { query, queryOne } from "@/lib/db";
 import { extensionOf, fileTypeOf, type FileCategory } from "@/lib/file-types";
+import {
+  deleteObject,
+  objectSize,
+  promoteObject,
+  readObject,
+  S3_MAX_UPLOAD_BYTES,
+  safeKeyName,
+  TMP_KEY,
+} from "@/lib/s3";
 import type { Attachment, AttachmentKind } from "@/lib/types";
 
 /** Vercel rejects request bodies over 4.5 MB, so stay safely under it. */
@@ -53,11 +62,15 @@ function startsWith(buf: Buffer, bytes: number[], offset = 0) {
   return buf.length >= offset + bytes.length && bytes.every((b, i) => buf[offset + i] === b);
 }
 
-/** Plain UTF-8 text: decodes strictly and contains no NUL bytes (i.e. not binary). */
-function isUtf8Text(buf: Buffer): boolean {
+/**
+ * Plain UTF-8 text: decodes strictly and contains no NUL bytes (i.e. not
+ * binary). `partial` = buf is only the start of the file, so it may end
+ * mid-character.
+ */
+function isUtf8Text(buf: Buffer, partial = false): boolean {
   if (buf.subarray(0, 65536).includes(0)) return false;
   try {
-    new TextDecoder("utf-8", { fatal: true }).decode(buf);
+    new TextDecoder("utf-8", { fatal: true }).decode(buf, { stream: partial });
     return true;
   } catch {
     return false;
@@ -69,7 +82,11 @@ function isUtf8Text(buf: Buffer): boolean {
  * matches its extension, rather than trusting the browser-supplied
  * Content-Type. E.g. an HTML page renamed to .pdf or .csv is rejected.
  */
-export function detectFileType(buf: Buffer, filename: string): { mime: string; category: FileCategory } | null {
+export function detectFileType(
+  buf: Buffer,
+  filename: string,
+  partial = false
+): { mime: string; category: FileCategory } | null {
   const image = sniffImage(buf);
   if (image) return { mime: image, category: "image" };
 
@@ -109,7 +126,7 @@ export function detectFileType(buf: Buffer, filename: string): { mime: string; c
       break;
     default:
       // csv, txt, log, md, json, yaml
-      ok = type.category === "text" || ext === "csv" ? isUtf8Text(buf) : false;
+      ok = type.category === "text" || ext === "csv" ? isUtf8Text(buf, partial) : false;
   }
   return ok ? { mime: type.mime, category: type.category } : null;
 }
@@ -123,43 +140,128 @@ export async function listAttachments(pageId: string): Promise<Attachment[]> {
   return rows.map(toAttachment);
 }
 
-export async function createAttachment(input: {
-  /** Optional pre-generated id (lets a caller reference the file before it exists). */
-  id?: string;
-  pageId: string;
-  kind: AttachmentKind;
-  filename: string;
-  caption: string;
-  data: Buffer;
-}): Promise<Attachment> {
+/** How many leading bytes of an S3 upload are read to check its type. */
+const SNIFF_BYTES = 64 * 1024;
+
+type Source = { data: Buffer } | { s3TmpKey: string };
+
+/**
+ * Stores an upload, after checking its real type. The bytes come either
+ * inline (`data`, kept in Postgres) or from an object the browser already
+ * put in S3's tmp/ area (`s3TmpKey`), which is moved to files/ once checked.
+ */
+export async function createAttachment(
+  input: {
+    /** Optional pre-generated id (lets a caller reference the file before it exists). */
+    id?: string;
+    pageId: string;
+    kind: AttachmentKind;
+    filename: string;
+    caption: string;
+  } & Source
+): Promise<Attachment> {
   const page = await queryOne("SELECT id FROM pages WHERE id = $1", [input.pageId]);
   if (!page) throw new Error("NOT_FOUND");
-  if (input.data.length === 0) throw new Error("EMPTY_FILE");
-  if (input.data.length > MAX_UPLOAD_BYTES) throw new Error("FILE_TOO_LARGE");
-  const detected = detectFileType(input.data, input.filename);
-  if (!detected) throw new Error("UNSUPPORTED_TYPE");
-  // Images and diagrams are pictures; everything else is stored as a file.
-  if (input.kind !== "file" && detected.category !== "image") throw new Error("NOT_AN_IMAGE");
-  const mime = detected.mime;
-
   const filename = input.filename.replace(/[\\/\r\n\t"]/g, "_").trim().slice(0, 200) || "upload";
-  const row = await queryOne<Row>(
-    `INSERT INTO attachments (id, page_id, kind, filename, mime_type, size, caption, data)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-     RETURNING id, page_id, kind, filename, mime_type, size, caption, created_at`,
-    [input.id ?? randomUUID(), input.pageId, input.kind, filename, mime, input.data.length, input.caption.trim().slice(0, 300), input.data]
-  );
-  return toAttachment(row!);
+  const id = input.id ?? randomUUID();
+
+  const checked = "data" in input ? checkInline(input.data, filename) : await checkS3Upload(input.s3TmpKey, filename);
+  const mime = checked.detected.mime;
+  // Images and diagrams are pictures; everything else is stored as a file.
+  if (input.kind !== "file" && checked.detected.category !== "image") {
+    if ("s3TmpKey" in input) await deleteObject(input.s3TmpKey).catch(() => {});
+    throw new Error("NOT_AN_IMAGE");
+  }
+
+  let s3Key: string | null = null;
+  if ("s3TmpKey" in input) {
+    s3Key = `files/${id}/${safeKeyName(filename)}`;
+    await promoteObject(input.s3TmpKey, s3Key, mime);
+  }
+
+  try {
+    const row = await queryOne<Row>(
+      `INSERT INTO attachments (id, page_id, kind, filename, mime_type, size, caption, data, storage, s3_key)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       RETURNING id, page_id, kind, filename, mime_type, size, caption, created_at`,
+      [
+        id,
+        input.pageId,
+        input.kind,
+        filename,
+        mime,
+        checked.size,
+        input.caption.trim().slice(0, 300),
+        "data" in input ? input.data : null,
+        s3Key ? "s3" : "db",
+        s3Key,
+      ]
+    );
+    return toAttachment(row!);
+  } catch (e) {
+    if (s3Key) await deleteObject(s3Key).catch(() => {});
+    throw e;
+  }
 }
 
-export async function getAttachmentData(
-  id: string
-): Promise<{ mimeType: string; filename: string; data: Buffer } | null> {
-  const row = await queryOne<{ mime_type: string; filename: string; data: Buffer }>(
-    "SELECT mime_type, filename, data FROM attachments WHERE id = $1",
-    [id]
+function checkInline(data: Buffer, filename: string) {
+  if (data.length === 0) throw new Error("EMPTY_FILE");
+  if (data.length > MAX_UPLOAD_BYTES) throw new Error("FILE_TOO_LARGE");
+  const detected = detectFileType(data, filename);
+  if (!detected) throw new Error("UNSUPPORTED_TYPE");
+  return { detected, size: data.length };
+}
+
+async function checkS3Upload(tmpKey: string, filename: string) {
+  if (!TMP_KEY.test(tmpKey)) throw new Error("INVALID_UPLOAD");
+  const size = await objectSize(tmpKey);
+  if (size === null) throw new Error("UPLOAD_NOT_FOUND");
+  const reject = async (code: string) => {
+    await deleteObject(tmpKey).catch(() => {});
+    return new Error(code);
+  };
+  if (size === 0) throw await reject("EMPTY_FILE");
+  if (size > S3_MAX_UPLOAD_BYTES) throw await reject("FILE_TOO_LARGE_S3");
+  const head = await readObject(tmpKey, Math.min(size, SNIFF_BYTES));
+  const detected = detectFileType(head, filename, size > head.length);
+  if (!detected) throw await reject("UNSUPPORTED_TYPE");
+  return { detected, size };
+}
+
+export type StoredFile = {
+  mimeType: string;
+  filename: string;
+  size: number;
+} & ({ storage: "db"; data: Buffer } | { storage: "s3"; s3Key: string });
+
+export async function getAttachmentData(id: string): Promise<StoredFile | null> {
+  const row = await queryOne<{
+    mime_type: string;
+    filename: string;
+    size: number;
+    storage: string;
+    s3_key: string | null;
+    data: Buffer | null;
+  }>("SELECT mime_type, filename, size, storage, s3_key, data FROM attachments WHERE id = $1", [id]);
+  if (!row) return null;
+  const base = { mimeType: row.mime_type, filename: row.filename, size: row.size };
+  return row.storage === "s3" && row.s3_key
+    ? { ...base, storage: "s3", s3Key: row.s3_key }
+    : { ...base, storage: "db", data: row.data ?? Buffer.alloc(0) };
+}
+
+/** S3 keys of every attachment on a page and all of its sub-pages (for cleanup on delete). */
+export async function s3KeysForPageTree(pageId: string): Promise<string[]> {
+  const rows = await query<{ s3_key: string }>(
+    `WITH RECURSIVE tree AS (
+       SELECT id FROM pages WHERE id = $1
+       UNION ALL
+       SELECT p.id FROM pages p JOIN tree t ON p.parent_id = t.id
+     )
+     SELECT a.s3_key FROM attachments a JOIN tree t ON a.page_id = t.id WHERE a.s3_key IS NOT NULL`,
+    [pageId]
   );
-  return row ? { mimeType: row.mime_type, filename: row.filename, data: row.data } : null;
+  return rows.map((r) => r.s3_key);
 }
 
 export async function updateAttachment(
@@ -193,7 +295,8 @@ export async function updateAttachment(
   return toAttachment(row);
 }
 
-export async function deleteAttachment(id: string): Promise<boolean> {
-  const rows = await query("DELETE FROM attachments WHERE id = $1 RETURNING id", [id]);
-  return rows.length > 0;
+/** Deletes the row; returns its S3 key (for the caller to remove), or false if it didn't exist. */
+export async function deleteAttachment(id: string): Promise<{ s3Key: string | null } | false> {
+  const row = await queryOne<{ s3_key: string | null }>("DELETE FROM attachments WHERE id = $1 RETURNING s3_key", [id]);
+  return row ? { s3Key: row.s3_key } : false;
 }
