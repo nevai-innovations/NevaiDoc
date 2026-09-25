@@ -133,20 +133,28 @@ export function Modal({
 }) {
   const titleId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
+  // Latest onClose without re-running the effect below: callers often pass an
+  // inline arrow, and re-running would move focus back to the first field on
+  // every parent re-render.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  });
 
   useEffect(() => {
     if (!open) return;
     const previous = document.activeElement as HTMLElement | null;
     const panel = panelRef.current;
-    const focusable = panel?.querySelector<HTMLElement>(
-      "[data-autofocus], input:not([type=hidden]), textarea, select, button:not([data-modal-close])"
-    );
+    // An element marked data-autofocus wins; otherwise the first field or button.
+    const focusable =
+      panel?.querySelector<HTMLElement>("[data-autofocus]") ??
+      panel?.querySelector<HTMLElement>("input:not([type=hidden]), textarea, select, button:not([data-modal-close])");
     (focusable ?? panel)?.focus();
 
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" && dismissible) {
         e.stopPropagation();
-        onClose();
+        onCloseRef.current();
       }
       if (e.key === "Tab" && panel) {
         const items = [
@@ -174,7 +182,7 @@ export function Modal({
       document.body.style.overflow = overflow;
       previous?.focus?.();
     };
-  }, [open, onClose, dismissible]);
+  }, [open, dismissible]);
 
   if (!open || typeof document === "undefined") return null;
 

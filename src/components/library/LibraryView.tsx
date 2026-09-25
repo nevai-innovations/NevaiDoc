@@ -338,13 +338,20 @@ export default function LibraryView() {
                   title={q ? "No matching documents" : status ? "No documents with this status" : "No documents here yet"}
                   action={
                     !q && (
-                      <button className={btn.primary} onClick={() => setNewDoc((n) => n + 1)}>
-                        <Plus className="h-4 w-4" /> New document
-                      </button>
+                      <div className="flex flex-wrap justify-center gap-2">
+                        <button className={btn.secondary} onClick={() => uploadInput.current?.click()} disabled={uploading > 0}>
+                          <Upload className="h-4 w-4" /> Upload files
+                        </button>
+                        <button className={btn.primary} onClick={() => setNewDoc((n) => n + 1)}>
+                          <Plus className="h-4 w-4" /> New document
+                        </button>
+                      </div>
                     )
                   }
                 >
-                  {q ? "Try a different word, or search by tag." : "Create a document or move one into this folder."}
+                  {q
+                    ? "Try a different word, or search by tag."
+                    : "Write a new document, upload files (or drag them here), or move a document into this folder."}
                 </EmptyState>
               ) : (
                 <DocTable
@@ -368,6 +375,7 @@ export default function LibraryView() {
         open={newDoc > 0}
         onClose={() => setNewDoc(0)}
         folderId={currentFolder?.id ?? null}
+        onUploaded={refresh}
       />
       {folderDialog && (
         <FolderDialog
