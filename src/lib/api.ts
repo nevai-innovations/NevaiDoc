@@ -13,7 +13,11 @@ const ERRORS: Record<string, [number, string]> = {
   NOTHING_TO_UPDATE: [400, "Nothing to update"],
   EMPTY_FILE: [400, "The file is empty"],
   FILE_TOO_LARGE: [413, "Files must be 4 MB or smaller"],
-  UNSUPPORTED_TYPE: [415, "Only PNG, JPEG, GIF, WebP and SVG images can be uploaded"],
+  UNSUPPORTED_TYPE: [
+    415,
+    "That file type isn't supported, or the file doesn't match its extension. Supported: PDF, Word, Excel, CSV, PowerPoint, images, text, MP4 and MP3.",
+  ],
+  NOT_AN_IMAGE: [415, "Images and diagrams must be PNG, JPEG, GIF, WebP or SVG. Upload other files as a File."],
 };
 
 export function errorResponse(e: unknown, fallback: string) {

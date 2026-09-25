@@ -12,6 +12,7 @@ export async function getDashboard(): Promise<DashboardData> {
       changes: number;
       attachments: number;
       diagrams: number;
+      files: number;
     }>(
       `SELECT
          (SELECT COUNT(*)::int FROM pages) AS documents,
@@ -20,7 +21,8 @@ export async function getDashboard(): Promise<DashboardData> {
          (SELECT COUNT(*)::int FROM pages WHERE status = 'in_review') AS pending,
          (SELECT COUNT(*)::int FROM pages WHERE status = 'changes_requested') AS changes,
          (SELECT COUNT(*)::int FROM attachments) AS attachments,
-         (SELECT COUNT(*)::int FROM attachments WHERE kind = 'diagram') AS diagrams`
+         (SELECT COUNT(*)::int FROM attachments WHERE kind = 'diagram') AS diagrams,
+         (SELECT COUNT(*)::int FROM attachments WHERE kind = 'file') AS files`
     ),
     listPages({ sort: "updated", limit: 6 }),
     listPages({ status: "in_review", sort: "updated", limit: 6 }),
@@ -36,6 +38,7 @@ export async function getDashboard(): Promise<DashboardData> {
       changesRequested: counts.changes,
       attachments: counts.attachments,
       diagrams: counts.diagrams,
+      files: counts.files,
     },
     recent,
     awaitingReview: inReview,

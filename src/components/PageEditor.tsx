@@ -14,13 +14,15 @@ import {
   List,
   ListChecks,
   Network,
+  Paperclip,
   PenLine,
   Save,
   Table,
 } from "lucide-react";
 import FolderSelect from "@/components/FolderSelect";
 import MarkdownView from "@/components/MarkdownView";
-import { ACCEPT, attachmentMarkdown, uploadAttachment } from "@/components/doc/AttachmentsPanel";
+import { attachmentMarkdown, uploadAttachment } from "@/components/doc/AttachmentsPanel";
+import { ANY_ACCEPT, IMAGE_ACCEPT } from "@/lib/file-types";
 import { useConfirm, useToast } from "@/components/providers";
 import { btn, card, Field, input, Spinner } from "@/components/ui";
 import { api, wordCount } from "@/lib/client";
@@ -91,6 +93,7 @@ export default function PageEditor({ page, folders, onSaved, onCancel, onUploade
   const textRef = useRef<HTMLTextAreaElement>(null);
   const imageInput = useRef<HTMLInputElement>(null);
   const diagramInput = useRef<HTMLInputElement>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
   const toast = useToast();
   const confirm = useConfirm();
 
@@ -128,12 +131,11 @@ export default function PageEditor({ page, folders, onSaved, onCancel, onUploade
   };
 
   const upload = async (files: File[], kind: AttachmentKind) => {
-    const images = files.filter((f) => f.type.startsWith("image/"));
-    if (!images.length) return;
+    if (!files.length) return;
     const at = textRef.current?.selectionStart ?? content.length;
-    setUploading((n) => n + images.length);
+    setUploading((n) => n + files.length);
     const snippets: string[] = [];
-    for (const file of images) {
+    for (const file of files) {
       try {
         const a = await uploadAttachment(page.id, file, kind);
         snippets.push(attachmentMarkdown(a));
@@ -156,12 +158,12 @@ export default function PageEditor({ page, folders, onSaved, onCancel, onUploade
     // Leave the cursor just after the inserted image(s), so the next insert follows it.
     requestAnimationFrame(() => textRef.current?.setSelectionRange(caret, caret));
     onUploaded();
-    toast("success", `Inserted ${snippets.length} ${kind === "diagram" ? "diagram" : "image"}${snippets.length === 1 ? "" : "s"}`);
+    toast("success", `Inserted ${snippets.length} file${snippets.length === 1 ? "" : "s"}`);
   };
 
   const onPaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
     const files = [...e.clipboardData.files];
-    if (files.some((f) => f.type.startsWith("image/"))) {
+    if (files.length) {
       e.preventDefault();
       upload(files, "image");
     }
@@ -305,6 +307,15 @@ export default function PageEditor({ page, folders, onSaved, onCancel, onUploade
             <button type="button" className={`${btn.ghost} px-2 py-1.5`} onClick={() => diagramInput.current?.click()} disabled={uploading > 0}>
               <Network className="h-4 w-4" /> Diagram
             </button>
+            <button
+              type="button"
+              className={`${btn.ghost} px-2 py-1.5`}
+              onClick={() => fileInput.current?.click()}
+              disabled={uploading > 0}
+              title="Attach a PDF, Word, Excel, PowerPoint or other file"
+            >
+              <Paperclip className="h-4 w-4" /> File
+            </button>
             {uploading > 0 && (
               <span className="ml-1 inline-flex items-center gap-1.5 text-xs text-muted">
                 <Spinner className="h-3.5 w-3.5" /> Uploading…
@@ -313,7 +324,7 @@ export default function PageEditor({ page, folders, onSaved, onCancel, onUploade
             <input
               ref={imageInput}
               type="file"
-              accept={ACCEPT}
+              accept={IMAGE_ACCEPT}
               multiple
               hidden
               onChange={(e) => {
@@ -324,11 +335,22 @@ export default function PageEditor({ page, folders, onSaved, onCancel, onUploade
             <input
               ref={diagramInput}
               type="file"
-              accept={ACCEPT}
+              accept={IMAGE_ACCEPT}
               multiple
               hidden
               onChange={(e) => {
                 upload([...(e.target.files ?? [])], "diagram");
+                e.target.value = "";
+              }}
+            />
+            <input
+              ref={fileInput}
+              type="file"
+              accept={ANY_ACCEPT}
+              multiple
+              hidden
+              onChange={(e) => {
+                upload([...(e.target.files ?? [])], "file");
                 e.target.value = "";
               }}
             />
@@ -364,7 +386,7 @@ export default function PageEditor({ page, folders, onSaved, onCancel, onUploade
               onChange={(e) => setContent(e.target.value)}
               onPaste={onPaste}
               onDrop={onDrop}
-              placeholder="Write in Markdown… Paste or drop images to upload them."
+              placeholder="Write in Markdown… Paste or drop images and files (PDF, Excel, Word…) to upload them."
               className={`min-h-[55vh] w-full resize-none p-5 font-mono text-sm leading-relaxed text-slate-800 outline-none ${
                 view === "preview" ? "hidden" : view === "split" ? "" : ""
               }`}

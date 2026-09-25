@@ -15,10 +15,23 @@ under **Settings** so it's recorded on versions and review actions.
   and tags, status filter, sorting, and moving documents between folders.
 - **Document viewer/editor**: Markdown with live preview, a formatting
   toolbar, metadata (summary, folder, owner, tags) and sub-pages.
+- **Files: PDF, Word, Excel, PowerPoint and more**: upload a file as a
+  document of its own (Library → *Upload files*, or drag files onto the
+  list), or attach it to any document (*Files & images* tab, or the editor's
+  *File* button, paste or drop). Everything previews in the app:
+  - PDF: the browser's built-in viewer
+  - Excel (`.xlsx`, `.xls`) and CSV: a spreadsheet grid with sheet tabs
+  - Word (`.docx`): converted to formatted text
+  - PowerPoint (`.pptx`): a slide-by-slide text outline
+  - Text, Markdown, JSON, YAML, logs; MP4/WebM video; MP3/WAV audio
+
+  Older `.doc`/`.ppt` files can be uploaded and downloaded but not previewed.
+  The server checks each file's actual contents against its extension.
 - **Images & architecture diagrams**: upload from the editor (button, paste
-  or drag-and-drop) or the *Images & diagrams* tab. PNG, JPEG, GIF, WebP and
-  SVG up to 4 MB each. Click any image for a full-screen lightbox with zoom,
-  pan, next/previous and download.
+  or drag-and-drop) or the *Files & images* tab. PNG, JPEG, GIF, WebP and
+  SVG. Click any image for a full-screen lightbox with zoom, pan,
+  next/previous and download.
+- All uploads are limited to 4 MB per file (see Storage notes).
 - **Version history**: every save of the title/content is a version. View
   any version, compare it with the current one, or restore it (restoring
   saves a new version and never rewrites history).
@@ -56,10 +69,10 @@ scripts/seed.mjs           Seeds templates (if none) and starter docs (if empty)
 
 ## Storage notes
 
-Uploaded images are stored in Postgres (`attachments.data`, `bytea`), so no
+Uploaded files and images are stored in Postgres (`attachments.data`, `bytea`), so no
 extra storage service is needed. Each file is limited to 4 MB, because Vercel
 rejects request bodies over 4.5 MB. On Neon's free plan (0.5 GB) this is
-fine for a few hundred diagrams. If you expect many large images, move
+fine for a few hundred files. If you expect many large files, move
 `attachments` to Vercel Blob or S3 later; the API already serves every image
 through `/api/attachments/<id>`, so documents won't need editing.
 

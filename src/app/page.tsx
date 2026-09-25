@@ -86,9 +86,9 @@ export default function DashboardPage() {
               href="/library"
               icon={<ImageIcon className="h-6 w-6" />}
               iconClass="bg-amber-50 text-amber-600"
-              label="Images & Diagrams"
+              label="Files & Diagrams"
               value={data.stats.attachments}
-              sub={`${data.stats.diagrams} architecture diagram${data.stats.diagrams === 1 ? "" : "s"}`}
+              sub={`${data.stats.files} file${data.stats.files === 1 ? "" : "s"} · ${data.stats.diagrams} diagram${data.stats.diagrams === 1 ? "" : "s"}`}
             />
           </div>
 

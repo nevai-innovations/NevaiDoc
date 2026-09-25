@@ -80,7 +80,7 @@ export type ApprovalEvent = {
   createdAt: string;
 };
 
-export type AttachmentKind = "image" | "diagram";
+export type AttachmentKind = "image" | "diagram" | "file";
 
 export type Attachment = {
   id: string;
@@ -118,6 +118,7 @@ export type DashboardData = {
     changesRequested: number;
     attachments: number;
     diagrams: number;
+    files: number;
   };
   recent: PageSummary[];
   awaitingReview: PageSummary[];

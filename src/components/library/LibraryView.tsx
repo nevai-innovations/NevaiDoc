@@ -16,6 +16,7 @@ import {
   Plus,
   Search,
   Trash2,
+  Upload,
 } from "lucide-react";
 import FolderSelect, { flattenFolders } from "@/components/FolderSelect";
 import Menu from "@/components/Menu";
@@ -25,6 +26,7 @@ import { DocIcon, useDeleteDocument } from "@/components/common";
 import { useConfirm, useToast } from "@/components/providers";
 import { btn, card, EmptyState, ErrorBanner, Field, input, Modal, PageLoading, Spinner, STATUS_META, StatusBadge, Tag } from "@/components/ui";
 import { api, formatBytes, timeAgo, useFetch } from "@/lib/client";
+import { ANY_ACCEPT, fileTypeOf, SUPPORTED_SUMMARY } from "@/lib/file-types";
 import { PAGE_STATUSES, type Folder, type PageSummary } from "@/lib/types";
 
 export default function LibraryView() {
@@ -87,6 +89,38 @@ export default function LibraryView() {
   const [folderDialog, setFolderDialog] = useState<{ mode: "create"; parentId: string | null } | { mode: "rename"; folder: Folder } | null>(null);
   const [folderDialogKey, setFolderDialogKey] = useState(0);
   const [moving, setMoving] = useState<PageSummary | null>(null);
+  const [uploading, setUploading] = useState(0);
+  const [dragOver, setDragOver] = useState(false);
+  const uploadInput = useRef<HTMLInputElement>(null);
+
+  /** Each file becomes its own document (in the current folder) that previews the file. */
+  const uploadDocuments = async (files: File[]) => {
+    if (!files.length) return;
+    setUploading((n) => n + files.length);
+    const created: PageSummary["id"][] = [];
+    for (const file of files) {
+      try {
+        if (file.size > 4 * 1024 * 1024) throw new Error(`“${file.name}” is larger than 4 MB`);
+        if (!fileTypeOf(file.name)) throw new Error(`“${file.name}” isn't a supported type (${SUPPORTED_SUMMARY})`);
+        const form = new FormData();
+        form.append("file", file);
+        if (currentFolder) form.append("folderId", currentFolder.id);
+        const { page } = await api<{ page: { id: string } }>("/api/pages/upload", { form });
+        created.push(page.id);
+      } catch (e) {
+        toast("error", e instanceof Error ? e.message : `Couldn't upload “${file.name}”`);
+      } finally {
+        setUploading((n) => n - 1);
+      }
+    }
+    if (!created.length) return;
+    if (files.length === 1) {
+      router.push(`/docs/${created[0]}`);
+    } else {
+      toast("success", `Uploaded ${created.length} document${created.length === 1 ? "" : "s"}`);
+      refresh();
+    }
+  };
 
   const openFolderDialog = (d: NonNullable<typeof folderDialog>) => {
     setFolderDialog(d);
@@ -138,10 +172,29 @@ export default function LibraryView() {
           <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Document Library</h1>
           <p className="mt-1 text-sm text-muted">Browse folders, search and manage every document.</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <button className={btn.secondary} onClick={() => openFolderDialog({ mode: "create", parentId: currentFolder?.id ?? null })}>
             <FolderPlus className="h-4 w-4" /> New folder
           </button>
+          <button
+            className={btn.secondary}
+            onClick={() => uploadInput.current?.click()}
+            disabled={uploading > 0}
+            title={`Upload ${SUPPORTED_SUMMARY} files as documents`}
+          >
+            {uploading ? <Spinner /> : <Upload className="h-4 w-4" />} {uploading ? `Uploading ${uploading}…` : "Upload files"}
+          </button>
+          <input
+            ref={uploadInput}
+            type="file"
+            accept={ANY_ACCEPT}
+            multiple
+            hidden
+            onChange={(e) => {
+              uploadDocuments([...(e.target.files ?? [])]);
+              e.target.value = "";
+            }}
+          />
           <button className={btn.primary} onClick={() => setNewDoc((n) => n + 1)}>
             <Plus className="h-4 w-4" /> New document
           </button>
@@ -183,7 +236,30 @@ export default function LibraryView() {
           </div>
         </aside>
 
-        <section className="min-w-0">
+        <section
+          className="relative min-w-0"
+          onDragOver={(e) => {
+            if (!e.dataTransfer.types.includes("Files")) return;
+            e.preventDefault();
+            setDragOver(true);
+          }}
+          onDragLeave={(e) => {
+            if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOver(false);
+          }}
+          onDrop={(e) => {
+            if (!e.dataTransfer.files.length) return;
+            e.preventDefault();
+            setDragOver(false);
+            uploadDocuments([...e.dataTransfer.files]);
+          }}
+        >
+          {dragOver && (
+            <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-xl border-2 border-dashed border-brand-500 bg-brand-50/90">
+              <p className="flex items-center gap-2 text-sm font-semibold text-brand-700">
+                <Upload className="h-5 w-5" /> Drop to upload into {currentFolder ? `“${currentFolder.name}”` : "the library"}
+              </p>
+            </div>
+          )}
           <div className={`${card} p-4 sm:p-5`}>
             <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
               <SearchBox initial={q} onSearch={(term) => setParams({ q: term || null })} />

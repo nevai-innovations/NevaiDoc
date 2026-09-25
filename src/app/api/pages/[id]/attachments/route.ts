@@ -16,7 +16,7 @@ export async function GET(_request: NextRequest, ctx: Ctx) {
   }
 }
 
-/** multipart/form-data: file, kind (image|diagram), caption? */
+/** multipart/form-data: file, kind (image|diagram|file), caption? */
 export async function POST(request: NextRequest, ctx: Ctx) {
   const { id } = await ctx.params;
 
@@ -35,7 +35,8 @@ export async function POST(request: NextRequest, ctx: Ctx) {
   if (!(file instanceof File)) {
     return NextResponse.json({ error: "No file was uploaded" }, { status: 400 });
   }
-  const kind = form.get("kind") === "diagram" ? "diagram" : "image";
+  const requested = form.get("kind");
+  const kind = requested === "diagram" || requested === "file" ? requested : "image";
   const caption = typeof form.get("caption") === "string" ? (form.get("caption") as string) : "";
 
   try {

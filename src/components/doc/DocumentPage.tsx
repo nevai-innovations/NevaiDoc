@@ -10,6 +10,7 @@ import {
   History,
   ImageIcon,
   LayoutTemplate,
+  Maximize2,
   MessageSquare,
   MoreHorizontal,
   Pencil,
@@ -23,6 +24,8 @@ import TemplateDialog from "@/components/TemplateDialog";
 import AttachmentsPanel from "@/components/doc/AttachmentsPanel";
 import { ApprovalCard, ReviewTimeline } from "@/components/doc/ReviewPanel";
 import VersionHistory from "@/components/doc/VersionHistory";
+import { FilePreviewBody, FilePreviewHeader } from "@/components/files/FilePreview";
+import { useFilePreview } from "@/components/providers";
 import { useDeleteDocument } from "@/components/common";
 import { btn, card, EmptyState, ErrorBanner, PageLoading, StatusBadge, Tag } from "@/components/ui";
 import { formatBytes, formatDate, timeAgo, useFetch, wordCount } from "@/lib/client";
@@ -35,6 +38,7 @@ export default function DocumentPage({ id }: { id: string }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const deleteDocument = useDeleteDocument();
+  const previewFile = useFilePreview();
 
   const doc = useFetch<{ page: PageFull; descendantCount: number }>(`/api/pages/${id}`);
   const files = useFetch<{ attachments: Attachment[] }>(`/api/pages/${id}/attachments`);
@@ -101,11 +105,21 @@ export default function DocumentPage({ id }: { id: string }) {
   }
 
   const diagrams = attachments.filter((a) => a.kind === "diagram").length;
+  const fileCount = attachments.filter((a) => a.kind === "file").length;
+  const images = attachments.length - diagrams - fileCount;
   const words = wordCount(page.content);
+
+  // A document created by uploading a file contains only a link to it:
+  // show that file's preview right in the page.
+  const trimmed = page.content.trim();
+  const soleFile = attachments.find((a) => {
+    const tail = `](${a.url})`;
+    return a.kind === "file" && trimmed.startsWith("[") && trimmed.endsWith(tail) && trimmed.indexOf("](") === trimmed.length - tail.length;
+  });
 
   const tabs: { id: Tab; label: string; icon: typeof FileText; count?: number }[] = [
     { id: "document", label: "Document", icon: FileText },
-    { id: "attachments", label: "Images & diagrams", icon: ImageIcon, count: attachments.length },
+    { id: "attachments", label: "Files & images", icon: ImageIcon, count: attachments.length },
     { id: "history", label: "Version history", icon: History, count: versionList.length },
     { id: "activity", label: "Review activity", icon: MessageSquare, count: eventList.length },
   ];
@@ -218,7 +232,29 @@ export default function DocumentPage({ id }: { id: string }) {
 
           <section className={`${card} p-5 sm:p-8`} role="tabpanel">
             {tab === "document" &&
-              (page.content.trim() ? (
+              (soleFile ? (
+                <div className="-m-5 overflow-hidden rounded-xl sm:-m-8">
+                  <FilePreviewHeader
+                    file={{ url: soleFile.url, filename: soleFile.filename, mimeType: soleFile.mimeType, size: soleFile.size }}
+                    extra={
+                      <button
+                        className="inline-flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                        onClick={() =>
+                          previewFile({ url: soleFile.url, filename: soleFile.filename, mimeType: soleFile.mimeType, size: soleFile.size })
+                        }
+                        title="Full screen"
+                      >
+                        <Maximize2 className="h-4 w-4" /> <span className="hidden sm:inline">Full screen</span>
+                      </button>
+                    }
+                  />
+                  <div className="h-[75vh] min-h-96">
+                    <FilePreviewBody
+                      file={{ url: soleFile.url, filename: soleFile.filename, mimeType: soleFile.mimeType, size: soleFile.size }}
+                    />
+                  </div>
+                </div>
+              ) : page.content.trim() ? (
                 <MarkdownView content={page.content} />
               ) : (
                 <EmptyState
@@ -260,7 +296,15 @@ export default function DocumentPage({ id }: { id: string }) {
                 {formatBytes(new Blob([page.content]).size + attachments.reduce((s, a) => s + a.size, 0))}
               </Detail>
               <Detail label="Attachments">
-                {attachments.length ? `${diagrams} diagram${diagrams === 1 ? "" : "s"}, ${attachments.length - diagrams} image${attachments.length - diagrams === 1 ? "" : "s"}` : "None"}
+                {attachments.length
+                  ? [
+                      fileCount && `${fileCount} file${fileCount === 1 ? "" : "s"}`,
+                      diagrams && `${diagrams} diagram${diagrams === 1 ? "" : "s"}`,
+                      images && `${images} image${images === 1 ? "" : "s"}`,
+                    ]
+                      .filter(Boolean)
+                      .join(", ")
+                  : "None"}
               </Detail>
             </dl>
           </section>

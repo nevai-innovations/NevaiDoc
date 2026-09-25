@@ -9,11 +9,18 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import dynamic from "next/dynamic";
 import { AlertTriangle, CheckCircle2, Info, X } from "lucide-react";
 import { Lightbox, type LightboxImage } from "@/components/Lightbox";
 import { btn, Modal } from "@/components/ui";
 import { useFetch } from "@/lib/client";
 import type { Settings } from "@/lib/types";
+import type { PreviewFile } from "@/components/files/FilePreview";
+
+// Loaded on first use: the viewers pull in the spreadsheet/Word/PowerPoint parsers.
+const FilePreviewModal = dynamic(() => import("@/components/files/FilePreview").then((m) => m.FilePreviewModal), {
+  ssr: false,
+});
 
 // ---------- Settings (workspace name, display name) ----------
 
@@ -193,12 +200,33 @@ function LightboxProvider({ children }: { children: ReactNode }) {
   );
 }
 
+// ---------- File preview (PDF, Excel, Word, …) ----------
+
+const FilePreviewContext = createContext<(file: PreviewFile) => void>(() => {});
+
+export function useFilePreview() {
+  return useContext(FilePreviewContext);
+}
+
+function FilePreviewProvider({ children }: { children: ReactNode }) {
+  const [file, setFile] = useState<PreviewFile | null>(null);
+  const close = useCallback(() => setFile(null), []);
+  return (
+    <FilePreviewContext.Provider value={setFile}>
+      {children}
+      {file && <FilePreviewModal key={file.url} file={file} onClose={close} />}
+    </FilePreviewContext.Provider>
+  );
+}
+
 export function Providers({ children }: { children: ReactNode }) {
   return (
     <SettingsProvider>
       <ToastProvider>
         <ConfirmProvider>
-          <LightboxProvider>{children}</LightboxProvider>
+          <LightboxProvider>
+            <FilePreviewProvider>{children}</FilePreviewProvider>
+          </LightboxProvider>
         </ConfirmProvider>
       </ToastProvider>
     </SettingsProvider>
